@@ -9,6 +9,7 @@ import Popover from 'antd/lib/popover';
 import Button from 'antd/lib/button';
 import Icon from 'antd/lib/icon';
 import Tag from 'antd/lib/tag';
+import Input from 'antd/lib/input';
 import { ParameterValueInput } from '@/components/ParameterValueInput';
 import { ParameterMappingType } from '@/services/widget';
 
@@ -191,32 +192,12 @@ export class ParameterMappingInput extends React.Component {
     }
   }
 
-  renderTitleInput() {
-    const { mapping } = this.props;
-    if (mapping.type === MappingType.StaticValue) {
-      return null;
-    }
-    return (
-      <div className="m-t-10">
-        <label>Change parameter title (leave empty to use existing):</label>
-        <input
-          type="text"
-          className="form-control"
-          value={mapping.title}
-          onChange={event => this.updateParamMapping(mapping, { title: event.target.value })}
-          placeholder={mapping.param.title}
-        />
-      </div>
-    );
-  }
-
   render() {
     const { mapping } = this.props;
     return (
       <div key={mapping.name}>
         {this.renderMappingTypeSelector()}
         {this.renderInputBlock()}
-        {this.renderTitleInput()}
       </div>
     );
   }
@@ -264,6 +245,27 @@ class EditMapping extends React.Component {
     );
   }
 
+  get label() {
+    const { type, mapTo } = this.props.mapping;
+
+    switch (type) {
+      case MappingType.DashboardAddNew:
+      case MappingType.DashboardMapToExisting:
+        return (
+          <Fragment>
+            Dashboard parameter{' '}
+            <Tag className="tag">{mapTo}</Tag>
+          </Fragment>
+        );
+      case MappingType.WidgetLevel:
+        return 'Widget parameter';
+      case MappingType.StaticValue:
+        return 'Static value';
+      default:
+        return ''; // won't happen (typescript-ftw)
+    }
+  }
+
   show = () => {
     this.setState({ visible: true });
   }
@@ -274,18 +276,101 @@ class EditMapping extends React.Component {
 
   render() {
     return (
-      <Popover
-        placement="right"
-        trigger="click"
-        content={this.content}
-        visible={this.state.visible}
-        onVisibleChange={this.onVisibleChange}
-        getPopupContainer={this.props.getContainerElement}
-      >
-        <Button size="small" type="dashed">
-          <Icon type="edit" theme="twoTone" />
+      <Fragment>
+        {this.label}{' '}
+        <Popover
+          placement="left"
+          trigger="click"
+          content={this.content}
+          visible={this.state.visible}
+          onVisibleChange={this.onVisibleChange}
+          getPopupContainer={this.props.getContainerElement}
+        >
+          <Button size="small" type="dashed">
+            <Icon type="edit" />
+          </Button>
+        </Popover>
+      </Fragment>
+    );
+  }
+}
+
+class TitleInput extends React.Component {
+  static propTypes = {
+    mapping: PropTypes.object.isRequired, // eslint-disable-line react/forbid-prop-types
+    onChange: PropTypes.func.isRequired,
+    getContainerElement: PropTypes.func.isRequired,
+  };
+
+  state = {
+    visible: false,
+    title: this.props.mapping.title,
+  }
+
+  onVisibleChange = (visible) => {
+    this.setState({
+      visible,
+      title: this.props.mapping.title, // reset title
+    });
+  }
+
+  onTitleChange = (event) => {
+    this.setState({ title: event.target.value });
+  }
+
+  get popover() {
+    const { param: { title: paramTitle } } = this.props.mapping;
+
+    return (
+      <div className="editTitle">
+        <Input
+          size="small"
+          value={this.state.title}
+          placeholder={paramTitle}
+          onChange={this.onTitleChange}
+          onPressEnter={this.save}
+          autoFocus
+        />
+        <Button size="small" type="dashed" onClick={this.hide}>
+          <Icon type="close" />
         </Button>
-      </Popover>
+        <Button size="small" type="dashed" onClick={this.save}>
+          <Icon type="check" />
+        </Button>
+      </div>
+    );
+  }
+
+  save = () => {
+    const newMapping = extend({}, this.props.mapping, { title: this.state.title });
+    this.props.onChange(newMapping);
+    this.hide();
+  }
+
+  hide = () => {
+    this.setState({ visible: false });
+  }
+
+  render() {
+    const { mapping } = this.props;
+    const { title, param: { title: paramTitle } } = mapping;
+
+    return (
+      <Fragment>
+        {title || paramTitle}{' '}
+        <Popover
+          placement="right"
+          trigger="click"
+          content={this.popover}
+          visible={this.state.visible}
+          onVisibleChange={this.onVisibleChange}
+          getPopupContainer={this.props.getContainerElement}
+        >
+          <Button size="small" type="dashed">
+            <Icon type="edit" />
+          </Button>
+        </Popover>
+      </Fragment>
     );
   }
 }
@@ -368,31 +453,16 @@ export class ParameterMappingListInput extends React.Component {
           rowKey={(record, idx) => `row${idx}`}
         >
           <Table.Column
-            title="Edit"
-            dataIndex="mapping"
-            key="edit"
-            render={(mapping) => {
-              const existingParamsNames = existingParams
-                .filter(({ type }) => type === mapping.param.type) // exclude mismatching param types
-                .map(({ name }) => name); // keep names only
-
-              return (
-                <EditMapping
-                  mapping={mapping}
-                  existingParamNames={existingParamsNames}
-                  onChange={(oldMapping, newMapping) => this.updateParamMapping(oldMapping, newMapping)}
-                  getContainerElement={() => this.wrapperRef.current}
-                  clientConfig={clientConfig}
-                  Query={Query}
-                />
-              );
-            }}
-          />
-          <Table.Column
             title="Title"
             dataIndex="mapping"
             key="title"
-            render={mapping => mapping.title || mapping.param.title}
+            render={mapping => (
+              <TitleInput
+                mapping={mapping}
+                onChange={newMapping => this.updateParamMapping(mapping, newMapping)}
+                getContainerElement={() => this.wrapperRef.current}
+              />
+            )}
           />
           <Table.Column
             title="Keyword"
@@ -412,22 +482,20 @@ export class ParameterMappingListInput extends React.Component {
             dataIndex="mapping"
             key="source"
             render={(mapping) => {
-              switch (mapping.type) {
-                case MappingType.DashboardAddNew:
-                case MappingType.DashboardMapToExisting:
-                  return (
-                    <Fragment>
-                      Dashboard parameter{' '}
-                      <Tag className="tag">{mapping.mapTo}</Tag>
-                    </Fragment>
-                  );
-                case MappingType.WidgetLevel:
-                  return 'Widget parameter';
-                case MappingType.StaticValue:
-                  return 'Static value';
-                default:
-                  return ''; // won't happen (typescript-ftw)
-              }
+              const existingParamsNames = existingParams
+                .filter(({ type }) => type === mapping.param.type) // exclude mismatching param types
+                .map(({ name }) => name); // keep names only
+
+              return (
+                <EditMapping
+                  mapping={mapping}
+                  existingParamNames={existingParamsNames}
+                  onChange={(oldMapping, newMapping) => this.updateParamMapping(oldMapping, newMapping)}
+                  getContainerElement={() => this.wrapperRef.current}
+                  clientConfig={clientConfig}
+                  Query={Query}
+                />
+              );
             }}
           />
         </Table>
